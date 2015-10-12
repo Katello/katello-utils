@@ -273,7 +273,7 @@ subcommands = {
   end,
   'configure' => OptionParser.new do |opts|
     opts.banner = _("Usage:") + " " + _('configure')
-    opts.on( '-r', '--remove', _('Remove repositories that was disabled') ) do
+    opts.on( '-r', '--remove', _('Remove repositories that are disabled') ) do
       options[:remove] = true
     end
   end,
