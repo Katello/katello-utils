@@ -76,11 +76,18 @@ class DisconnectedPulp
   end
 
   def enable(value, repoids = nil, all = nil)
+    allrepoids = manifest.repositories.keys
     if repoids
       repoids = repoids.split(/,\s*/).collect(&:strip)
+      # Check all given repos are valid
+      repoids.each do |repoid|
+        unless allrepoids.include?(repoid)
+          LOG.error _("%{repoid} isn't listed in the imported manifest, see katello-disconnected list --disabled") % {:repoid => repoid}
+        end
+      end
     else
       if all
-        repoids = manifest.repositories.keys
+        repoids = allrepoids
       else
         LOG.error _('You need to provide some repoids')
         return
