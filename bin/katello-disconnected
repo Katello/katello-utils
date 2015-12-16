@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/ruby193-ruby
 #
 # Copyright 2013 Red Hat, Inc.
 #
@@ -113,8 +113,9 @@ subtext = _('Possible commands are:') + "\n\n" +
 '     ' + _('setup            set pulp and puppet configuration (oauth is required)') + "\n" +
 '     ' + _('import           import a manifest') + "\n" +
 '     ' + _('list             list all or enabled repositories') + "\n" +
-'     ' + _('enable           enable particular repository or all repos') + "\n" +
-'     ' + _('disable          disable particular repository or all repos') + "\n" +
+'     ' + _('enable           enable particular yum repositiories from CDN') + "\n" +
+'     ' + _('disable          disable particular yum repositories from CDN') + "\n" +
+'     ' + _('custom_repos     configure 3rd party repos') + "\n" +
 '     ' + _('puppet_queries   set which Puppet modules to sync from Puppet Forge') + "\n" +
 '     ' + _('configure        create and configure repositories in pulp') + "\n" +
 '     ' + _('sync             start synchronizing all or particular repos') + "\n" +
@@ -219,6 +220,21 @@ subcommands = {
     opts.on( '-a', '--cdnca FILE', _("CDN CA file (%s)") % DEFAULT_CDNCA ) do |value|
       LOG.fatal "Provide a valid file: #{value}" if not File.exists? value
       options[:cdn_ca] = value
+    end
+  end,
+  'custom_repos' => OptionParser.new do |opts|
+    opts.banner = _("Usage:") + " " + _('custom_repos [--list] [--enable repoid] [--disable repoid]')
+    opts.on( '-l', '--list', _('list enabled custom repos. ') ) do
+      options[:list] = true
+    end
+    opts.on( '-s', '--disable REPOID', _('disable REPOID. ') ) do |value|
+      options[:disable] = value
+    end
+    opts.on( '-e', '--enable REPOID', _('enable a repo and give it a unique REPOID. ') ) do |value|
+      options[:enable] = value
+    end
+    opts.on( '--url URL', _('upstream repository URL ') ) do |value|
+      options[:url] = value
     end
   end,
   'puppet_queries' => OptionParser.new do |opts|
@@ -488,12 +504,17 @@ elsif command == 'list'
   elsif options[:disabled] and not CONFIG['puppet']
      puts DEFAULT_PUPPET_FORGE_ID
   end
+  puts _("\nCustom Repositories")
+  pulp.custom_repos options[:enable], options[:disable], options[:url], true
 elsif command == 'enable'
   pulp = DisconnectedPulp.new active_manifest, options, LOG, runcible
   pulp.enable true, options[:repos], options[:all]
 elsif command == 'disable'
   pulp = DisconnectedPulp.new active_manifest, options, LOG, runcible
   pulp.enable false, options[:repos], options[:all]
+elsif command == 'custom_repos'
+  pulp = DisconnectedPulp.new active_manifest, options, LOG, runcible
+  pulp.custom_repos options[:enable], options[:disable], options[:url], options[:list]
 elsif command == 'puppet_queries'
   pulp = DisconnectedPulp.new active_manifest, options, LOG, runcible
   pulp.puppet_queries DEFAULT_PUPPET_FORGE_ID, options[:queries]
