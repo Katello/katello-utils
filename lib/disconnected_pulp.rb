@@ -204,13 +204,14 @@ class DisconnectedPulp
             # skip if this repo was already finished
             next if finished_repoids[repoid]
             if watch_type == :sync_status
-              status = @runcible.extensions.repository.sync_status repoid
+              tasks = @runcible.extensions.repository.sync_status repoid
             elsif watch_type == :publish_status
-              status = @runcible.extensions.repository.publish_status repoid
+              tasks = @runcible.extensions.repository.publish_status repoid
             else
               LOG.fatal _("Unknown watch_type: %s") % watch_type
               raise _("Unknown watch_type: %s") % watch_type
             end
+            status = tasks.sort_by { |t| t["start_time"] ? -1 : 0 }.reverse!
             state = status[0]['state'] || 'unknown' rescue 'unknown'
             items_left = status[0]['progress']['yum_importer']['content']['items_left'] rescue 'unknown'
             exception = status[0]['exception'] || '' rescue ''
