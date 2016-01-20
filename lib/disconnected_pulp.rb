@@ -134,16 +134,30 @@ class DisconnectedPulp
         repo = active_repos[repoid]
         relative_url = URI.split(repo.url)[5]
 
-        # Yum, ISO and Export
-        distributors = [Runcible::Models::YumDistributor.new(relative_url, true, false, {:id => 'yum_distributor'}),
-            Runcible::Models::ExportDistributor.new(true, false)]
+        if repo.content.type == "file"
+          LOG.debug "we have an ISO repo"
+          distributors = [Runcible::Models::IsoDistributor.new(true, true),
+              Runcible::Models::ExportDistributor.new(true, false)]
 
-        yum_importer = Runcible::Models::YumImporter.new
-        yum_importer.feed = repo.url
-        yum_importer.ssl_ca_cert = manifest.read_cdn_ca
-        yum_importer.ssl_client_cert = repo.cert
-        yum_importer.ssl_client_key = repo.key
-        @runcible.extensions.repository.create_with_importer_and_distributors(repoid, yum_importer, distributors)
+          iso_importer = Runcible::Models::IsoImporter.new
+          iso_importer.feed = repo.url
+          iso_importer.ssl_ca_cert = manifest.read_cdn_ca
+          iso_importer.ssl_client_cert = repo.cert
+          iso_importer.ssl_client_key = repo.key
+          @runcible.extensions.repository.create_with_importer_and_distributors(repoid, iso_importer, distributors)
+        else
+          LOG.debug "we have a yum repo"
+          # Yum, ISO and Export
+          distributors = [Runcible::Models::YumDistributor.new(relative_url, true, false, {:id => 'yum_distributor'}),
+              Runcible::Models::ExportDistributor.new(true, false)]
+
+          yum_importer = Runcible::Models::YumImporter.new
+          yum_importer.feed = repo.url
+          yum_importer.ssl_ca_cert = manifest.read_cdn_ca
+          yum_importer.ssl_client_cert = repo.cert
+          yum_importer.ssl_client_key = repo.key
+          @runcible.extensions.repository.create_with_importer_and_distributors(repoid, yum_importer, distributors)
+        end
       end
     end
 
@@ -160,7 +174,6 @@ class DisconnectedPulp
        @runcible.resources.repository.delete puppet_forge_id rescue RestClient::ResourceNotFound
        LOG.debug _("Deleted Puppet Forge repo")
     end
-
   end
 
   def synchronize(repoids = nil)
@@ -332,13 +345,16 @@ class DisconnectedPulp
       cmd = "tar -C /var/www/pulp_puppet/http/repos -c -h -z -p -f - . |  split -d -b 4600M - #{target_basedir}/content-export-puppet-"
       system(cmd)
     end
+    if File.exist?("/var/lib/pulp/published/http/isos")
+      cmd = "tar -C /var/lib/pulp/published/http/isos -c -h -z -p -f - . |  split -d -b 4600M - #{target_basedir}/content-export-isos-"
+      system(cmd)
+    end
     # Write out simple script to expand split up archives
-    unsplit_script = "#!/bin/bash\n\n"\
-                     "cat content-export-* | tar xzpf -\n\n"\
-                     "echo \"*** Done expanding archives. ***\"\n"
-    # puts unsplit_script
     f = File.open("#{target_basedir}/expand_export.sh", 'w')
-    f.write(unsplit_script)
+    f.write("#!/bin/bash\n\n")
+    f.write("cat content-export-* | tar xzpf -\n\n")
+    f.write("cat content-export-isos-* | tar xzpf -\n\n") if File.exist?("/var/lib/pulp/published/http/isos")
+    f.write("echo \"*** Done expanding archives. ***\"\n")
     f.chmod(0755)
     # Clean up dir trees
     FileUtils.rm_rf("#{target_basedir}/content")
