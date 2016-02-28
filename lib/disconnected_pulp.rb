@@ -100,6 +100,46 @@ class DisconnectedPulp
     active_manifest.save_repo_conf
   end
 
+  def custom_repos(enable_repo = nil, disable_repo = nil, url = nil, list = nil)
+    if enable_repo
+      LOG.fatal _("--url must be supplied") if url.nil?
+      LOG.verbose _("Enabling repo %s") % enable_repo
+      begin
+        data = Marshal.load (File.binread(CONFIG_DIR + "/custom_repos.bin"))
+      rescue Errno::ENOENT
+        data = Hash.new
+      end
+      dry_run do
+        data[enable_repo] = url
+        File.open(CONFIG_DIR + "/custom_repos.bin",'wb') do |f|
+          f.write Marshal.dump(data)
+        end
+      end
+    elsif disable_repo
+      begin
+        data = Marshal.load (File.binread(CONFIG_DIR + "/custom_repos.bin"))
+      rescue Errno::ENOENT
+        LOG.fatal _("No custom repositories enabled")
+      end
+      LOG.verbose _("Removing repo %s") % disable_repo
+      dry_run do
+        data.delete(disable_repo)
+        File.open(CONFIG_DIR + "/custom_repos.bin",'wb') do |f|
+          f.write Marshal.dump(data)
+        end
+      end
+    elsif list
+      begin
+        data = Marshal.load (File.binread(CONFIG_DIR + "/custom_repos.bin"))
+      rescue Errno::ENOENT
+      else
+        data.each do|repoid,url|
+          puts _(repoid +"\n")
+        end
+      end
+    end
+  end
+
   def puppet_queries(repoid, queries)
     LOG.debug ("updating repo: #{repoid} with queries: #{queries}")
     repo = @runcible.extensions.repository.retrieve_with_details(repoid)
@@ -109,14 +149,25 @@ class DisconnectedPulp
   end
 
   def configure(remove_disabled = false, puppet = false, puppet_forge_url, puppet_forge_id)
+    creposa = Array.new
+    begin
+      creposh = Marshal.load (File.binread(CONFIG_DIR + "/custom_repos.bin"))
+      creposh.each do |repoid,url|
+        creposa.push repoid
+      end
+      custom_repos = true
+    rescue Errno::ENOENT
+    end
     active_repos = manifest.repositories
     mfrepos = manifest.enabled_repositories
+    yumrepos = mfrepos + creposa
     purepos = @runcible.resources.repository.retrieve_all.collect { |m| m['id'] }
-    repos_to_be_added = mfrepos - purepos
-    repos_to_be_removed = purepos - mfrepos
-    LOG.debug _("Enabled repos: %s") % mfrepos.inspect
+    cdn_repos_to_be_added = mfrepos - purepos
+    repos_to_be_removed = purepos - yumrepos
+    LOG.debug _("Enabled repos: %s") % yumrepos.inspect
     LOG.debug _("Pulp repos: %s") % purepos.inspect
-    LOG.debug _("To be added: %s") % repos_to_be_added.inspect
+    LOG.debug _("To be added: %s") % cdn_repos_to_be_added.inspect
+    LOG.debug _("To be added: %s") % creposa.inspect
     # remove extra repos
     if remove_disabled and repos_to_be_removed.size > 0
       LOG.debug _("To be removed: %s") % repos_to_be_removed.inspect
@@ -128,7 +179,7 @@ class DisconnectedPulp
       end
     end
     # add new repos
-    repos_to_be_added.each do |repoid|
+    cdn_repos_to_be_added.each do |repoid|
       LOG.verbose _("Creating repo %s") % repoid
       dry_run do
         repo = active_repos[repoid]
@@ -174,6 +225,27 @@ class DisconnectedPulp
        @runcible.resources.repository.delete puppet_forge_id rescue RestClient::ResourceNotFound
        LOG.debug _("Deleted Puppet Forge repo")
     end
+
+    # enable custom repos
+    if custom_repos
+      creposh.each do|repoid,url|
+        begin
+          @runcible.resources.repository.retrieve repoid
+        rescue RestClient::ResourceNotFound
+          LOG.verbose _("Creating repo %s") % repoid
+          dry_run do
+            relative_url = URI.split(url)[5]
+            distributors = [Runcible::Models::YumDistributor.new(relative_url, true, false, {:id => 'yum_distributor'}),
+              Runcible::Models::ExportDistributor.new(true, false)]
+
+            yum_importer = Runcible::Models::YumImporter.new
+            yum_importer.feed = url
+            @runcible.extensions.repository.create_with_importer_and_distributors(repoid, yum_importer, distributors)
+          end
+        end
+      end
+    end
+
   end
 
   def synchronize(repoids = nil)
